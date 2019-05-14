@@ -2,6 +2,10 @@ module Todo
 
 # Julia package for using and working with the todo.txt format (defined [here](https://github.com/todotxt/todo.txt))
 
+export TodoTask, isComplete, priority, completed, created, description, projects, contexts, tags, load_todos, save_todos
+export @todo_str, todos, todo_hits, reset_hits, clear_todos
+
+
 using Dates: Dates, Date, format, @dateformat_str
 
 
@@ -39,6 +43,7 @@ function TodoTask(line::AbstractString = ""; kwargs...)
 	(isC, pri, com, cre, des) = m.captures
 	isC = isC === nothing ? false : true
 	pri = pri === nothing ? nothing : pri[1]
+	(com, cre) = cre === nothing ? (nothing, com) : (com, cre)
 	com = com === nothing ? nothing : Date(com, dateformat"yyyy-mm-dd")
 	cre = cre === nothing ? nothing : Date(cre, dateformat"yyyy-mm-dd")
 	des = unescape_string(des)
@@ -70,13 +75,13 @@ Base.string(task::TodoTask) = join((
 ))
 
 
-function load(filePath)
+function load_todos(filePath)
 	return open(filePath) do file
 		return map(line -> TodoTask(unescape_string(line)), filter(!isempty, readlines(file)))
 	end
 end
 
-function save(filePath, todos; format = :todo, kwargs...)
+function save_todos(filePath, todos; format = :todo, kwargs...)
 	format in (:todo, :markdown) || error("`$(format)` is not a valid format for saving.")
 	
 	open(filePath, "w+") do file
@@ -101,7 +106,6 @@ _todos = Dict{TodoTask, Int}()
 todos() = collect(keys(_todos))
 todo_hits() = filter(((todo, hits),) -> hits > 0, _todos)
 reset_hits() = foreach(key -> _todos[key] = 0, keys(_todos))
-clear_todos() = empty!(_todos)
 
 
 macro todo_str(line::String) ; return _add_todo(line, __source__, __module__) ; end
@@ -127,7 +131,7 @@ function _add_todo(line::String, src::LineNumberNode, mod::Module)
 	task = TodoTask(line)
 	haskey(Todo._todos, task) || push!(Todo._todos, task => 0)
 	
-	return Todo.TRACK_TODOS ? :(Todo._todos[TodoTask($(line))] += 1 ; nothing) : nothing
+	return Todo.TRACK_TODOS ? :(let ; Todo._todos[TodoTask($(line))] += 1 ; nothing ; end) : nothing
 end
 
 
