@@ -14,14 +14,14 @@ struct TodoTask
 	description::String
 	
 	function TodoTask(isComplete::Bool, priority::Union{Char, Nothing}, completed::Union{Date, Nothing}, created::Union{Date, Nothing}, description::AbstractString)
-		!isnothing(completed) && !isnothing(created) && completed < created && error("TodoTask cannot be completed before it was created")
-		!isnothing(completed) && !isComplete && error("TodoTask cannot have a completion date yet be marked incomplete")
-		isnothing(priority) || 'A' <= priority <= 'Z' || error("TodoTask priority must a capital letter [A-Z]")
+		completed !== nothing && created !== nothing && completed < created && error("TodoTask cannot be completed before it was created")
+		completed !== nothing && !isComplete && error("TodoTask cannot have a completion date yet be marked incomplete")
+		priority === nothing || 'A' <= priority <= 'Z' || error("TodoTask priority must a capital letter [A-Z]")
 		
 		desc = String(description)
-		isnothing(match(r"^x ", desc)) || error("TodoTask description may not begin with a completion marking, e.g. `x `")
-		isnothing(match(r"^\([A-Z]\) ", desc)) || error("TodoTask description may not begin with a priority, e.g. `(A) `")
-		isnothing(match(r"^[\d]{4}-[\d]{2}-[\d]{2} ", desc)) || error("TodoTask description may not begin with a date, e.g. `2019-01-23 `")
+		match(r"^x ", desc) === nothing || error("TodoTask description may not begin with a completion marking, e.g. `x `")
+		match(r"^\([A-Z]\)", desc) === nothing || error("TodoTask description may not begin with a priority, e.g. `(A) `")
+		match(r"^[\d]{4}-[\d]{2}-[\d]{2} ", desc) === nothing || error("TodoTask description may not begin with a date, e.g. `2019-01-23 `")
 		
 		#todo"ensure desc doesnt contain control chars"
 		#todo"ensure tags, contexts, projects contain no whitespace chars"
@@ -34,13 +34,13 @@ function TodoTask(line::AbstractString = ""; kwargs...)
 	foreach(k -> k in fieldnames(TodoTask) || error("Keyword argument $(k) is not a valid field for TodoTask ($(fieldnames(TodoTask)...))"), keys(kwargs))
 	
 	m = match(r"^(?:(x)[ ]+)?(?:\(([A-Z])\)[ ]+)?(?:([\d]{4}-[\d]{2}-[\d]{2})[ ]+)?(?:([\d]{4}-[\d]{2}-[\d]{2})[ ]+)?(.*)$", escape_string(line))
-	isnothing(m) && error("Invalid line used to construct a TodoTask `$(line)`")
+	m === nothing && error("Invalid line used to construct a TodoTask `$(line)`")
 	
 	(isC, pri, com, cre, des) = m.captures
-	isC = isnothing(isC) ? false : true
-	pri = isnothing(pri) ? nothing : pri[1]
-	com = isnothing(com) ? nothing : Date(com, dateformat"yyyy-mm-dd")
-	cre = isnothing(cre) ? nothing : Date(cre, dateformat"yyyy-mm-dd")
+	isC = isC === nothing ? false : true
+	pri = pri === nothing ? nothing : pri[1]
+	com = com === nothing ? nothing : Date(com, dateformat"yyyy-mm-dd")
+	cre = cre === nothing ? nothing : Date(cre, dateformat"yyyy-mm-dd")
 	des = unescape_string(des)
 	
 	return TodoTask(
@@ -57,16 +57,15 @@ priority(task::TodoTask) = task.priority
 completed(task::TodoTask) = task.completed
 created(task::TodoTask) = task.created
 description(task::TodoTask) = task.description
-projects(task::TodoTask) = collect(eachmatch(r"(?:^| )\+([^ ]+)", task.description))
-contexts(task::TodoTask) = collect(eachmatch(r"(?:^| )@([^ ]+)", task.description))
-tags(task::TodoTask) = map(m -> m.captures[1] => m.captures[2], collect(eachmatch(r"(?:^| )([^ :]+):([^ ]+)", task.description)))
-
+projects(task::TodoTask) = map(m -> m.captures[1], collect(eachmatch(r"(?:^| )\+([^ ]+)", task.description)))
+contexts(task::TodoTask) = map(m -> m.captures[1], collect(eachmatch(r"(?:^| )@([^ ]+)", task.description)))
+tags(task::TodoTask) = map(m -> m.captures[1] => m.captures[2], collect(eachmatch(r"(?:^| )([^ :+@][^ :]*):([^ ]+)", task.description)))
 
 Base.string(task::TodoTask) = join((
 	task.isComplete ? "x " : "",
-	!isnothing(task.priority) ? "($(task.priority)) " : "",
-	!isnothing(task.completed) ? format(task.completed, dateformat"yyyy-mm-dd ") : "",
-	!isnothing(task.created) ? format(task.created, dateformat"yyyy-mm-dd ") : "",
+	task.priority !== nothing ? "($(task.priority)) " : "",
+	task.completed !== nothing ? format(task.completed, dateformat"yyyy-mm-dd ") : "",
+	task.created !== nothing ? format(task.created, dateformat"yyyy-mm-dd ") : "",
 	escape_string(task.description)
 ))
 
@@ -109,8 +108,9 @@ macro todo_str(line::String) ; return _add_todo(line, __source__, __module__) ; 
 
 function _add_todo(line::String, src::LineNumberNode, mod::Module)
 	# do nothing when file field is not provided or when in the REPL
-	isnothing(src.file) && return quote end
-	isnothing(match(r"^REPL\[\d+\]$", string(src.file))) || return quote end
+	src.file === nothing && return quote end
+	m = match(r"^REPL\[\d+\]$", string(src.file))
+	m === nothing || return quote end
 	
 	task = TodoTask(line)
 	
@@ -120,7 +120,7 @@ function _add_todo(line::String, src::LineNumberNode, mod::Module)
 	project = replace(project, r"^Main\." => "")
 	task = project in projects(task) ? task : TodoTask(unescape_string(string(task)), description = "$(task.description) +$(project)")
 	
-	context = "$(string(src.file)):$(src.line)"
+	context = "$(relpath(string(src.file))):$(src.line)"
 	task = context in contexts(task) ? task : TodoTask(unescape_string(string(task)), description = "$(task.description) @$(context)")
 	
 	line = unescape_string(string(task))
